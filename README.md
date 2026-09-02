@@ -1,62 +1,84 @@
 # Financial Data Analysis
 
-A financial data analysis project built with Python to analyze historical stock market data. The project uses **Yahoo Finance** data and focuses on data cleaning, return analysis, volatility, risk-adjusted performance, and eventually SQL-based analysis and visualization.
+A Python and SQL Server based financial data analysis project using historical stock market data from Yahoo Finance.
 
-## Project Objective
+The project focuses on collecting, cleaning, analyzing, and storing financial data while comparing the risk and return characteristics of selected stocks.
 
-The main objective of this project is to analyze and compare the historical performance and risk characteristics of selected technology companies.
+## Project Overview
 
-Currently, the project analyzes:
+In this project, historical daily stock data is collected using `yfinance` and processed with Python, Pandas, and NumPy.
+
+The processed data is then stored in a local SQL Server database using `pyodbc`. SQL is used to perform additional financial analysis, and the resulting analysis can be retrieved back into Python for further processing and visualization.
+
+### Data Pipeline
+
+```text
+Yahoo Finance
+      ↓
+   yfinance
+      ↓
+Python / Pandas / NumPy
+      ↓
+Data Cleaning & Financial Metrics
+      ↓
+SQL Server
+      ↓
+SQL Analysis
+      ↓
+Python
+      ↓
+Visualization & Reporting
+```
+
+## Stocks Analyzed
+
+The current analysis includes:
 
 * Apple (AAPL)
 * NVIDIA (NVDA)
 * Meta Platforms (META)
 
-The project is being developed as an end-to-end data analysis project using Python, Pandas, NumPy, PostgreSQL, SQL, and data visualization tools.
+Approximately 8 years of daily historical data is analyzed.
 
-## Data Source
+## Technologies Used
 
-Historical stock market data is obtained using the `yfinance` Python library.
+* Python
+* Pandas
+* NumPy
+* yfinance
+* pyodbc
+* Microsoft SQL Server
+* Matplotlib *(planned for visualization)*
+* Seaborn *(planned for visualization)*
 
-* Period: Approximately 8 years
-* Interval: Daily
-* Data source: Yahoo Finance
+## Python Analysis
 
-The following market variables are used:
+The Python side of the project currently performs the following analyses:
 
-* Open
-* High
-* Low
-* Close
-* Volume
+### Data Collection
 
-## Current Analysis
+Historical daily market data is downloaded from Yahoo Finance using `yfinance`.
 
-### 1. Data Collection
+The following data is collected:
 
-Historical daily stock data is downloaded using `yfinance`.
+* Open Price
+* High Price
+* Low Price
+* Close Price
+* Trading Volume
 
-```python
-raw = yf.download(
-    TICKERS,
-    period="96mo",
-    interval="1d",
-    group_by="ticker"
-)
-```
+### Data Quality Checks
 
-### 2. Data Quality Checks
-
-The dataset is checked for:
+Several checks are performed before analysis, including:
 
 * Missing values
 * Duplicated dates
-* Invalid High/Low relationships
-* Invalid High/Open relationships
+* First and last valid dates
+* High/Low price consistency
+* High/Open price consistency
 * Negative trading volume
-* Valid date ranges for each stock
 
-### 3. Daily Return
+### Daily Returns
 
 Daily percentage returns are calculated using:
 
@@ -64,129 +86,192 @@ Daily percentage returns are calculated using:
 daily_return = Closes.pct_change() * 100
 ```
 
-Daily return measures the percentage change in a stock's closing price from one trading day to the next.
+### Monthly and Yearly Returns
 
-### 4. Monthly and Yearly Returns
+Monthly and yearly returns are calculated from the first and last available closing prices within each period.
 
-Monthly and yearly returns are calculated to examine how stock performance changes over longer periods.
+### Risk & Return Metrics
 
-The project calculates:
+The following financial metrics are currently calculated:
 
-* Monthly returns
-* Yearly returns
+* Annualized Return
+* CAGR (Compound Annual Growth Rate)
+* 1-Year Volatility
+* 8-Year Volatility
+* Sharpe Ratio
 
-### 5. Volatility Analysis
+### Correlation Analysis
 
-Annualized volatility is calculated using the standard deviation of daily returns.
+A correlation matrix is calculated using daily returns to examine the relationship between the stocks.
 
-Two periods are currently analyzed:
+## SQL Server Database
 
-* 1-year volatility
-* 8-year volatility
+The processed daily stock data is stored in a local Microsoft SQL Server database.
 
-The annualization uses approximately 252 trading days:
+### Database
 
-```python
-volatility = daily_return.std() * np.sqrt(252)
+```text
+FinancialData
 ```
 
-Higher volatility indicates larger fluctuations in daily returns and therefore higher historical price variability.
+### Main Table
 
-### 6. Annualized Return
-
-The average daily return is annualized using:
-
-```python
-annualized_return = daily_return.mean() * 252
+```text
+StockPrices
 ```
 
-This provides an annualized estimate based on the arithmetic mean of daily returns.
+The table contains:
 
-### 7. CAGR
+| Column       | Description             |
+| ------------ | ----------------------- |
+| ID           | Unique row identifier   |
+| TradeDate    | Trading date            |
+| Ticker       | Stock ticker            |
+| OpenPrice    | Opening price           |
+| HighPrice    | Highest price           |
+| LowPrice     | Lowest price            |
+| ClosePrice   | Closing price           |
+| Volume       | Trading volume          |
+| daily_return | Daily percentage return |
 
-Compound Annual Growth Rate (CAGR) is used to measure the annualized compound growth between the beginning and ending prices over the available historical period.
+Python automatically checks the latest date stored for each ticker and only inserts newer rows into SQL Server. This prevents duplicate historical records when the script is executed again.
 
-Unlike the arithmetic annualized return, CAGR considers the actual beginning and ending values of the investment.
+## SQL Analysis
 
-### 8. Sharpe Ratio
+SQL Server is used to perform additional analysis on the stored financial data.
 
-A simplified Sharpe Ratio is calculated to evaluate return relative to volatility:
+Current SQL analyses include:
 
-```python
-sharpe_ratio = annualized_return / volatility
+### Average Daily Return
+
+Average daily return is calculated for each stock.
+
+### Best Trading Day
+
+`ROW_NUMBER()` and `PARTITION BY` are used to identify the trading day with the highest daily return for each stock.
+
+### Worst Trading Day
+
+The same ranking approach is used to identify the trading day with the lowest daily return for each stock.
+
+### Positive and Negative Trading Days
+
+The number of positive and negative trading days is calculated using `CASE` expressions.
+
+### Annualized Volatility
+
+Daily standard deviation is annualized using:
+
+```text
+Annualized Volatility = Daily Volatility × √252
 ```
 
-The current implementation assumes a **0% risk-free rate**.
+### Sharpe Ratio
 
-Both 1-year and 8-year Sharpe Ratios will be included in the completed risk-return analysis.
+A simplified Sharpe Ratio is calculated using an assumed risk-free rate of 0%:
 
-## Current Risk & Return Metrics
+```text
+Sharpe Ratio = Annualized Return / Annualized Volatility
+```
 
-The current analysis contains:
+### Risk & Return Summary
 
-| Metric            | Period  |
-| ----------------- | ------- |
-| Annualized Return | 1Y / 8Y |
-| CAGR              | 8Y      |
-| Volatility        | 1Y / 8Y |
-| Sharpe Ratio      | 1Y / 8Y |
+The main SQL summary combines:
 
-These metrics will be used to compare the historical risk and performance characteristics of AAPL, NVDA, and META.
+* Annualized Return
+* Annualized Volatility
+* Sharpe Ratio
+* Best Daily Return
+* Worst Daily Return
+* Total Trading Days
+* Positive Trading Days
+* Negative Trading Days
 
-## Technologies
+## Python ↔ SQL Server Integration
 
-* Python
-* Pandas
-* NumPy
-* yfinance
-* PostgreSQL
-* SQL
-* Matplotlib
-* Seaborn
+The project uses `pyodbc` to connect Python to SQL Server.
 
-## Project Roadmap
+The current pipeline supports both directions:
 
-The project will be developed in the following stages:
+```text
+Python → SQL Server
+```
 
-* [x] Data collection with `yfinance`
-* [x] Data quality checks
-* [x] Daily return analysis
-* [x] Monthly return analysis
-* [x] Yearly return analysis
-* [x] 1Y and 8Y volatility analysis
-* [x] Annualized return analysis
-* [x] CAGR analysis
-* [x] Risk & Return analysis
-* [ ] Correlation analysis
-* [ ] PostgreSQL database integration
-* [ ] SQL-based financial analysis
-* [ ] Data visualization with Matplotlib and Seaborn
-* [ ] Final analysis and report
+for storing market data, and:
+
+```text
+SQL Server → Python
+```
+
+for retrieving SQL analysis results.
+
+SQL analysis results are retrieved into Pandas DataFrames using:
+
+```python
+pd.read_sql()
+```
+
+The SQL risk and return summary is encapsulated in a Python function:
+
+```python
+def get_risk_return_summary():
+    ...
+```
+
+This keeps the main program more organized and makes the SQL analysis reusable.
+
+## Current Results
+
+Based on the current analysis:
+
+| Stock | Annualized Return | 8Y CAGR | 8Y Volatility | 8Y Sharpe |
+| ----- | ----------------: | ------: | ------------: | --------: |
+| NVDA  |            56.34% |  53.62% |        51.46% |      1.09 |
+| AAPL  |            27.37% |  25.18% |        31.07% |      0.88 |
+| META  |            24.21% |  16.58% |        41.82% |      0.58 |
+
+Among the three stocks analyzed, **NVDA currently has the highest Annualized Return, CAGR, and Sharpe Ratio**, while also having the highest 8-year volatility.
+
+This indicates that NVDA achieved the strongest historical return in the analyzed period, but these returns were accompanied by greater price volatility.
 
 ## Project Structure
+
+The project is currently being developed and the structure may evolve as new analysis stages are added.
 
 ```text
 Financial-Data-Analysis/
 │
-├── financial_data_analysis.py
+├── Python/
+│   └── main.py
+│
+├── SQL/
+│   ├── 01_create_database.sql
+│   ├── 02_create_tables.sql
+│   └── 03_analysis.sql
+│
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── .gitignore
 ```
 
 ## Future Improvements
 
-Future versions of the project will include:
+Planned improvements include:
 
-* Correlation analysis between stocks
-* PostgreSQL database integration
-* SQL queries for financial analysis
-* Risk-free rate integration
-* More advanced risk metrics
-* Drawdown analysis
-* Portfolio analysis
 * Financial data visualization
-* Final analytical report
+* Stock price performance charts
+* Risk and return comparison charts
+* Volatility visualization
+* Sharpe Ratio comparison
+* Correlation heatmap
+* Maximum Drawdown analysis
+* Rolling volatility
+* Rolling returns
+* More advanced SQL analysis
+* Final financial analysis report
 
 ## Disclaimer
 
-This project is for educational and analytical purposes only. The results are based on historical market data and should not be interpreted as financial advice.
+This project is created for educational and portfolio purposes.
+
+The analysis is based on historical market data and does not constitute financial advice or a recommendation to buy or sell any security.
