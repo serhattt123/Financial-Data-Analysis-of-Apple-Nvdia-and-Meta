@@ -11,6 +11,6 @@ CREATE TABLE StockPrices (
     HighPrice DECIMAL(18,4),
     LowPrice DECIMAL(18,4),
     ClosePrice DECIMAL(18,4),
-    Daily_Return float
+    Daily_Return float,
     Volume BIGINT
 );
