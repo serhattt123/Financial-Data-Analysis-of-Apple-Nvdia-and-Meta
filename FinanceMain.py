@@ -100,9 +100,6 @@ for ticker in TICKERS:
         "Volume": "Volume"
     })
 
-    ticker_data["daily_return"] = (
-        ticker_data["ClosePrice"].pct_change() * 100
-    )
 
     ticker_data["daily_return"] = ticker_data["ClosePrice"].pct_change() * 100
     ticker_data["daily_return"] = ticker_data["daily_return"].astype(object)
