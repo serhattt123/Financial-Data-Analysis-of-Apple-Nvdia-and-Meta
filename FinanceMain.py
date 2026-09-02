@@ -1,6 +1,8 @@
 import pandas as pd
 import yfinance as yf
 import numpy as np
+from pathlib import Path
+import pyodbc
 
 # avoid scientific notation
 pd.set_option("display.float_format", "{:.2f}".format)
@@ -8,13 +10,127 @@ pd.set_option("display.width", 120)
 
 TICKERS = ["AAPL", "NVDA", "META"]
 
+# Keep yfinance's SQLite cache in this project. This avoids permission issues
+# with the default user-cache folder on some Windows/OneDrive installations.
+CACHE_DIR = Path(__file__).with_name(".yfinance_cache")
+CACHE_DIR.mkdir(exist_ok=True)
+yf.cache.set_cache_location(CACHE_DIR)
+
 
 def section(title):
     print(f"\n{'='*10} {title} {'='*10}")
 
 
+def filter_new_rows(df, last_dates):
+    """Keep only rows whose TradeDate is strictly after what's already stored
+    for that ticker. Tickers with no history yet (last_date is None) keep all
+    their rows."""
+    mask = pd.Series(True, index=df.index)
+    for ticker, last_date in last_dates.items():
+        if last_date is not None:
+            already_have = (df["Ticker"] == ticker) & (
+                df["TradeDate"] <= last_date)
+            mask &= ~already_have
+    return df[mask]
+
+
+def get_risk_return_summary():
+    query = """
+    SELECT
+        Ticker,
+        AVG(daily_return) * 252 AS AnnualizedReturn,
+        STDEV(daily_return) * SQRT(252) AS AnnualizedVolatility,
+        (AVG(daily_return) * 252) /
+            (STDEV(daily_return) * SQRT(252)) AS SharpeRatio,
+        MAX(daily_return) AS BestDailyReturn,
+        MIN(daily_return) AS WorstDailyReturn,
+        COUNT(*) AS TotalTradingDays,
+        SUM(
+            CASE
+                WHEN daily_return > 0 THEN 1
+                ELSE 0
+            END
+        ) AS PositiveDays,
+        SUM(
+            CASE
+                WHEN daily_return < 0 THEN 1
+                ELSE 0
+            END
+        ) AS NegativeDays
+    FROM [FinancialData].[dbo].[StockPrices]
+    WHERE daily_return IS NOT NULL
+    GROUP BY Ticker
+    ORDER BY SharpeRatio DESC;
+    """
+
+    connection = pyodbc.connect(
+        "DRIVER={ODBC Driver 18 for SQL Server};"
+        "SERVER=.\\SQLEXPRESS;"
+        "DATABASE=FinancialData;"
+        "Trusted_Connection=yes;"
+        "TrustServerCertificate=yes;"
+    )
+
+    result = pd.read_sql(query, connection)
+
+    connection.close()
+
+    return result
+
+
 # ---- Fetch data ----
 raw = yf.download(TICKERS, period="96mo", interval="1d", group_by="ticker")
+
+# ---- SQL data ----
+sql_data = []
+
+for ticker in TICKERS:
+    ticker_data = raw[ticker].copy()
+
+    ticker_data = ticker_data.reset_index()
+
+    ticker_data["Ticker"] = ticker
+
+    ticker_data = ticker_data.rename(columns={
+        "Date": "TradeDate",
+        "Open": "OpenPrice",
+        "High": "HighPrice",
+        "Low": "LowPrice",
+        "Close": "ClosePrice",
+        "Volume": "Volume"
+    })
+
+    ticker_data["daily_return"] = (
+        ticker_data["ClosePrice"].pct_change() * 100
+    )
+
+    ticker_data["daily_return"] = ticker_data["ClosePrice"].pct_change() * 100
+    ticker_data["daily_return"] = ticker_data["daily_return"].astype(object)
+    ticker_data.loc[ticker_data["daily_return"].isna(), "daily_return"] = None
+
+    sql_data.append(
+        ticker_data[
+            [
+                "TradeDate",
+                "Ticker",
+                "OpenPrice",
+                "HighPrice",
+                "LowPrice",
+                "ClosePrice",
+                "Volume",
+                "daily_return"
+            ]
+        ]
+    )
+
+sql_data = pd.concat(sql_data, ignore_index=True)
+
+
+if raw.empty:
+    raise SystemExit(
+        "No market data was downloaded. Check your internet connection, then run "
+        "the script again."
+    )
 
 Closes = pd.DataFrame({t: raw[t]["Close"] for t in TICKERS})
 Volumes = pd.DataFrame({t: raw[t]["Volume"] for t in TICKERS})
@@ -86,5 +202,74 @@ risk_return = pd.DataFrame({
     "8Y Sharpe Ratio": sharpe_8y,
 }).round(2)
 
+
+connection = pyodbc.connect(
+    "DRIVER={ODBC Driver 18 for SQL Server};"
+    "SERVER=.\\SQLEXPRESS;"
+    "DATABASE=FinancialData;"
+    "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
+)
+cursor = connection.cursor()
+
+print("Connection successful!")
+
+cursor.execute("""
+    SELECT Ticker, MAX(TradeDate) AS LastDate
+    FROM StockPrices
+    GROUP BY Ticker
+""")
+last_dates = {
+    row.Ticker: pd.Timestamp(
+        row.LastDate) if row.LastDate is not None else None
+    for row in cursor.fetchall()
+}
+print("Last loaded date per ticker:", last_dates)
+
+# Filter the SQL data to only include new rows
+sql_data = filter_new_rows(sql_data, last_dates)
+
+# print(sql_data.head())
+# print(sql_data.shape)
+# print(sql_data.dtypes)
+
+for row in sql_data.itertuples(index=False, name=None):
+
+    cursor.execute("""
+        INSERT INTO StockPrices
+        (
+            TradeDate,
+            Ticker,
+            OpenPrice,
+            HighPrice,
+            LowPrice,
+            ClosePrice,
+            Volume,
+            daily_return
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, row)
+
+connection.commit()
+
+cursor.close()
+connection.close()
+
+print("Data successfully inserted into SQL Server.")
+
+
+# ---- Correlation Analysis ----
+correlation_matrix = daily_return.corr()
+
+section("Correlation Matrix")
+print(correlation_matrix)
+
+# ---- Pandas Risk & Return Summary ----
 section("Risk & Return Analysis")
 print(risk_return)
+
+# ---- SQL Risk & Return Summary ----
+section("SQL Risk & Return Analysis")
+risk_return_sql = get_risk_return_summary()
+
+print(risk_return_sql)
